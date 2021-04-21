@@ -1,0 +1,38 @@
+---
+title: "HRD Analysis"
+output: github_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+setwd("/Users/jbreynier/Desktop/Research/Olopade Lab/hrd")
+chord_pred <- read.table("test_nigerian_output/chord_pred.txt", sep = "\t")
+chord_pred$group <- "Nigerian"
+merged_contexts <- read.table("test_nigerian_output/merged_contexts.txt", sep = "\t")
+merged_contexts$group <- "Nigerian"
+```
+
+## Summary of CHORD output:
+
+```{r table, echo=FALSE}
+chord_pred[c("sample", "hr_status", "hrd_type")]
+```
+
+## SVs:
+
+```{r boxplot_sv, echo=FALSE}
+plot_TRA <- ggplot(merged_contexts, aes(x=group, y=TRA)) + 
+  geom_boxplot()
+plot_TRA
+```
+
+
+## HRD score:
+
+```{r boxplot_hrd, echo=FALSE}
+plot_HRD <- ggplot(chord_pred, aes(x=group, y=p_hrd)) + 
+  geom_boxplot()
+plot_HRD
+```
