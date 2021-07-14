@@ -5,34 +5,260 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r setup, include=FALSE}
+```{r data, include=FALSE}
 library(ggplot2)
+library(readxl)
+library(tidyr)
+library(grid)
+library(cowplot)
+library(dplyr)
+library(knitr)
+
 setwd("/Users/jbreynier/Desktop/Research/Olopade Lab/hrd")
-chord_pred <- read.table("test_nigerian_output/chord_pred.txt", sep = "\t")
-chord_pred$group <- "Nigerian"
-merged_contexts <- read.table("test_nigerian_output/merged_contexts.txt", sep = "\t")
-merged_contexts$group <- "Nigerian"
+sample_info <- read.table("NIG_BC_metadata_clean_173.txt", sep = "\t", header = 1)
+sample_info <- sample_info[, c("ID", "Subtype", "RACE_geno")]
+colnames(sample_info) <- c("sample", "subtype", "race")
+mutation_info <- read_xlsx("mutation_info.xlsx")
+sv_counts <- read.csv("sv_counts.csv")
+chord_pred_nigerian <- read_xlsx("chord_final/nigerian_chord_pred_delly_manta_lumpy_2vote.xlsx")
+chord_columns_keep <- c("sample", "p_BRCA1", "p_BRCA2", "p_hrd", "hr_status", "hrd_type")
+chord_pred_nigerian <- chord_pred_nigerian[, chord_columns_keep]
+chord_pred_nigerian$group <- "Nigerian"
+chord_pred_TCGA <- read_xlsx("chord_final/TCGA_chord_pred_delly_manta_lumpy_2vote.xlsx")
+chord_pred_TCGA <- chord_pred_TCGA[, chord_columns_keep]
+chord_pred_TCGA$group <- "TCGA"
+chord_pred <- rbind(chord_pred_nigerian, chord_pred_TCGA)
+total_results <- merge(chord_pred, sample_info, all.x = TRUE)
+total_results <- merge(total_results, mutation_info, all.x = TRUE)
+total_results <- merge(total_results, sv_counts, all.x = TRUE)
+df_colors <- data.frame(c("#999999", "#DCA037", "#6CB2E3"),
+                        c("Nigerian", "Black", "White"))
+colnames(df_colors) <- c("color", "race")
+
+```
+
+```{r graph_functions, include=FALSE}
+
+hrd_genotype_graph <- function(df_results, group) {
+  
+  df_results_group <- df_results[df_results$group == group,]
+  df_results_group <- df_results_group[order(df_results_group$p_hrd), ]
+  df_results_group$order <- 1:nrow(df_results_group)
+  df_results_group_stackedformat <- pivot_longer(df_results_group, cols=c(p_BRCA1, p_BRCA2),
+                                           names_to = "p_mutation", values_to = "p_mutation_score")
+  df_results_group_stackedformat$p_mutation <- gsub('p_BRCA1', 'BRCA1-type HRD',
+                                                    df_results_group_stackedformat$p_mutation)
+  df_results_group_stackedformat$p_mutation <- gsub('p_BRCA2', 'BRCA2-type HRD',
+                                                    df_results_group_stackedformat$p_mutation)
+  stacked_barplot <- ggplot(df_results_group_stackedformat,
+                            aes(fill=p_mutation, y=p_mutation_score, x=order)) + 
+    geom_bar(position="stack", stat="identity", show.legend = TRUE) + theme_bw() + 
+    scale_y_continuous(limits = c(0,1), expand = c(0, 0.03)) +
+    scale_x_continuous(limits = c(-1, nrow(df_results_group) + 1), expand = c(0, 0)) +
+    theme(axis.title.x=element_blank(),
+          panel.grid.minor.x=element_blank(),
+          panel.grid.major.x=element_blank()) +
+    theme(axis.title.x=element_blank(), axis.text.x=element_blank()) +
+    theme(legend.key.size = unit(0.03, "npc"),
+          legend.title = element_text(size = 9),
+          legend.text = element_text(size =7)) + 
+    guides(fill=guide_legend(title = "Prediction class")) +
+    scale_fill_manual(values = c("#F8766D", "#619CFF")) + ylab("HRD probability")
+  
+  mutation_axis <- ggplot(df_results_group_stackedformat, aes(y=1, x=order)) + 
+    geom_tile(aes(fill=mutation), show.legend=TRUE) + theme_bw() + 
+    scale_x_continuous(limits = c(-1, nrow(df_results_group) + 1), expand = c(0, 0)) +
+    theme(panel.grid.minor.x=element_blank(),
+          panel.grid.major.x=element_blank()) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.grid.minor.y=element_blank(),
+          panel.grid.major.y=element_blank()) +
+    theme(legend.key.size = unit(0.03, "npc"),
+          legend.title = element_text(size = 9),
+          legend.text = element_text(size =7)) + 
+    scale_fill_manual(breaks = c('BRCA1', 'BRCA2', 'PALB2'),
+                      name = "Gene mutated", values = c("#F8766D", "#619CFF", "#00BA38")) +
+    xlab(paste(as.character(nrow(df_results_group)), " samples"))
+  
+  combined_plots <- plot_grid(
+    stacked_barplot,
+    mutation_axis,
+    ncol = 1, align='v', rel_heights = c(10, 2)
+  )
+
+  final_plot <- grid.draw(combined_plots)
+}
+
+table_chord <- function(df_results, group) {
+  df_results <- df_results[df_results$group == group, c("sample", "subtype", "mutation",
+                                                        "p_hrd", "hr_status", "hrd_type")]
+  df_results$hr_status <- gsub('HR_proficient', 'Proficient', 
+                               gsub('HR_deficient', 'Deficient', df_results$hr_status))
+  df_results$hrd_type <- gsub('cannot_be_determined', 'Cannot be determined',
+                              gsub('_type', '', df_results$hrd_type))
+  df_results$hrd_type <- gsub("none", "", df_results$hrd_type)
+  df_results <- df_results[order(df_results$p_hrd, decreasing = TRUE), ]
+  df_results[is.na(df_results)] <- ""
+  columns <- c("Sample", "Subtype", "Mutation", "CHORD HRD Score",
+               "CHORD HR Status", "CHORD HRD Type")
+  colnames(df_results) <- columns
+  kable(df_results, "simple", row.names = FALSE)
+}
+
+dotplot_hrd <- function(df_results, subtype) {
+  df_results <- df_results[complete.cases(df_results[ , c("race", "subtype")]),]
+  df_results <- df_results[order(df_results$p_hrd),]
+  df_results$race <- factor(df_results$race, levels=c("Nigerian", "Black", "White"))
+  df_results_subtype <- df_results[df_results$subtype == subtype, ]
+  df_frequency <- as.data.frame(table(df_results_subtype$race))
+  colnames(df_frequency) <- c("race", "count")
+  df_frequency <- df_frequency[df_frequency$count > 0,]
+  colors_to_use <- df_colors[df_colors$race %in% df_frequency$race,"color"]
+  dotplot_HRD <- ggplot(df_results_subtype, aes(x=race, y=p_hrd, fill=race))  + theme_bw() +
+    geom_dotplot(binaxis= "y", stackdir = "center", dotsize = 0.6,
+                 stroke = 0.3, position = "dodge", binpositions="all", method = "histodot") +
+    ylab("HRD probability") + xlab("Number of samples") + scale_y_continuous(limits = c(0,1)) +
+    scale_x_discrete(labels=df_frequency$count) + scale_fill_manual(values = colors_to_use) +
+    theme(plot.title = element_text(hjust = 0.5)) + ggtitle(subtype)
+  return(dotplot_HRD)
+}
+
+barplot_hrd <- function(df_results, subtype) {
+  df_results <- df_results[complete.cases(df_results[ , c("race", "subtype")]),]
+  df_results <- df_results[order(df_results$p_hrd),]
+  df_results$race <- factor(df_results$race, levels=c("Nigerian", "Black", "White"))
+  df_results_subtype <- df_results[df_results$subtype == subtype, ]
+  df_frequency <- as.data.frame(table(df_results_subtype$race))
+  colnames(df_frequency) <- c("race", "count")
+  df_frequency <- df_frequency[df_frequency$count > 0,]
+  colors_to_use <- df_colors[df_colors$race %in% df_frequency$race, "color"]
+  df_count_hrd <- count(df_results_subtype, race, hr_status)
+  df_frequency$prop_hrd <- df_count_hrd[df_count_hrd$hr_status == "HR_deficient", "n"] / df_frequency$count
+  barplot_HRD <- ggplot(df_frequency, aes(x = race, y = prop_hrd, fill = race)) + geom_bar(stat="identity") + 
+    scale_fill_manual(values = colors_to_use) + theme_bw() + 
+    ylab("Proportion HRD") + xlab("Number of samples") + scale_y_continuous(limits = c(0,1)) +
+    scale_x_discrete(labels=df_frequency$count)
+  return(barplot_HRD)
+}
+
+boxplot_sv <- function(df_results, subtype) {
+  df_results <- df_results[complete.cases(df_results[ , c("race", "subtype")]),]
+  df_results <- df_results[order(df_results$p_hrd),]
+  df_results$race <- factor(df_results$race, levels=c("Nigerian", "Black", "White"))
+  df_results_subtype <- df_results[df_results$subtype == subtype, ]
+  df_frequency <- as.data.frame(table(df_results_subtype$race))
+  colnames(df_frequency) <- c("race", "count")
+  df_frequency <- df_frequency[df_frequency$count > 0, ]
+  colors_to_use <- df_colors[df_colors$race %in% df_frequency$race,"color"]
+  boxplot_SV <- ggplot(df_results_subtype, aes(x=race, y=sv_count, fill=race)) + theme_bw() +
+    geom_boxplot() + ylab("SV count") + xlab("Number of samples") + 
+    scale_x_discrete(labels=df_frequency$count) + scale_fill_manual(values = colors_to_use) +
+    theme(plot.title = element_text(hjust = 0.5)) + ggtitle(subtype) + scale_y_continuous(limits = c(0,2500))
+  return(boxplot_SV)
+}
+
+```
+
+## HRD prediction vs mutation:
+
+### Nigerian
+```{r barplot_hrd_nigerian, dpi=300, echo=FALSE}
+
+hrd_genotype_graph(total_results, "Nigerian")
+
+```
+
+### TCGA
+```{r barplot_hrd_TCGA, dpi=300, echo=FALSE}
+
+hrd_genotype_graph(total_results, "TCGA")
+
+```
+
+## HRD score by subtype:
+
+```{r boxplot_hrd, dpi=300, echo=FALSE, warning=FALSE, message=FALSE}
+
+combined_dotplot_plots <- plot_grid(
+  dotplot_hrd(total_results, "HR+/HER2-") + theme(legend.position="none") + xlab(NULL),
+  dotplot_hrd(total_results, "HER2+") + theme(legend.position="none", axis.text.y=element_blank()) +
+    ylab(NULL) + xlab(NULL),
+  dotplot_hrd(total_results, "HR-/HER2-") + theme(legend.position="none", axis.text.y=element_blank()) +
+    ylab(NULL) + xlab(NULL),
+  nrow = 1, align='h', axis = 'l'
+)
+
+combined_barplot_plots <- plot_grid(
+  barplot_hrd(total_results, "HR+/HER2-") + theme(legend.position="none") + xlab(NULL),
+  barplot_hrd(total_results, "HER2+") + theme(legend.position="none", axis.text.y=element_blank()) +
+    ylab(NULL),
+  barplot_hrd(total_results, "HR-/HER2-") + theme(legend.position="none", axis.text.y=element_blank())+
+    ylab(NULL) + xlab(NULL),
+  nrow = 1, align = 'h', axis = 'l'
+)
+
+legend_race_axis <- get_legend(barplot_hrd(total_results, "HR+/HER2-") + 
+                                 guides(color = guide_legend(nrow = 1)) +
+                                 guides(fill=guide_legend(title = "Group")) + 
+                                 theme(legend.position = "bottom"))
+
+combined_all <- plot_grid(
+  combined_dotplot_plots,
+  combined_barplot_plots,
+  legend_race_axis,
+  ncol = 1, align = 'v', rel_heights = c(10, 10, 1)
+)
+
+grid.draw(combined_all)
+
+```
+
+## SVs by subtype:
+
+```{r boxplot_sv, dpi=300, echo=FALSE, warning=FALSE, message=FALSE}
+
+combined_boxplot_plots <- plot_grid(
+  boxplot_sv(total_results, "HR+/HER2-") + theme(legend.position="none") + xlab(NULL),
+  boxplot_sv(total_results, "HER2+") + theme(legend.position="none", axis.text.y=element_blank()) +
+    ylab(NULL) + xlab(NULL),
+  boxplot_sv(total_results, "HR-/HER2-") + theme(legend.position="none", axis.text.y=element_blank()) +
+    ylab(NULL) + xlab(NULL),
+  nrow = 1, align='h', axis = 'l'
+)
+
+legend_race_axis <- get_legend(boxplot_sv(total_results, "HR+/HER2-") + 
+                                 guides(color = guide_legend(nrow = 1)) +
+                                 guides(fill=guide_legend(title = "Group")) + 
+                                 theme(legend.position = "bottom"))
+
+combined_all <- plot_grid(
+  combined_boxplot_plots,
+  legend_race_axis,
+  ncol = 1, align = 'v', rel_heights = c(10, 1)
+)
+
+grid.draw(combined_all)
+
 ```
 
 ## Summary of CHORD output:
 
-```{r table, echo=FALSE}
-chord_pred[c("sample", "hr_status", "hrd_type")]
+### Nigerian
+
+```{r table_nigerian, echo=FALSE}
+
+table_chord(total_results, "Nigerian")
+
 ```
 
-## SVs:
+### TCGA
 
-```{r boxplot_sv, echo=FALSE}
-plot_TRA <- ggplot(merged_contexts, aes(x=group, y=TRA)) + 
-  geom_boxplot()
-plot_TRA
+```{r table_TCGA, echo=FALSE}
+
+table_chord(total_results, "TCGA")
+
 ```
 
 
-## HRD score:
-
-```{r boxplot_hrd, echo=FALSE}
-plot_HRD <- ggplot(chord_pred, aes(x=group, y=p_hrd)) + 
-  geom_boxplot()
-plot_HRD
-```

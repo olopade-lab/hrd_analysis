@@ -1,5 +1,9 @@
 # HRD Analysis
 
+
+Required R packages:  
+
+
 ```
 Usage: run_chord.R [options]
 
@@ -26,3 +30,7 @@ Options:
                 Show this help message and exit
 
 ```
+
+
+Running with docker:  
+
