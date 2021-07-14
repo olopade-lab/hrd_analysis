@@ -208,7 +208,7 @@ combined_all <- plot_grid(
   combined_dotplot_plots,
   combined_barplot_plots,
   legend_race_axis,
-  ncol = 1, align = 'v', rel_heights = c(10, 10, 1)
+  ncol = 1, align = 'v', rel_heights = c(10, 10, 2)
 )
 
 grid.draw(combined_all)
@@ -222,7 +222,7 @@ grid.draw(combined_all)
 combined_boxplot_plots <- plot_grid(
   boxplot_sv(total_results, "HR+/HER2-") + theme(legend.position="none") + xlab(NULL),
   boxplot_sv(total_results, "HER2+") + theme(legend.position="none", axis.text.y=element_blank()) +
-    ylab(NULL) + xlab(NULL),
+    ylab(NULL),
   boxplot_sv(total_results, "HR-/HER2-") + theme(legend.position="none", axis.text.y=element_blank()) +
     ylab(NULL) + xlab(NULL),
   nrow = 1, align='h', axis = 'l'
